@@ -8,27 +8,23 @@ struct PropTree {
 impl PropTree {
 	// for clone subtree's new tree initialize
 	fn new() -> PropTree {
-		PropTree {
-			nodes: Vec::new(),
-		}
+		PropTree { nodes: Vec::new() }
 	}
 
 	fn atom_check(&self, ch: char, neg: bool) -> bool {
 		let lexical_unit = match self.nodes.last() {
-			Some(node) => { node.lexical_unit },
-			None => { return false },
+			Some(node) => node.lexical_unit,
+			None => return false,
 		};
 		match lexical_unit {
-			LexicalUnit::Atom(ch2) => {
-				neg == true && ch == ch2
-			},
+			LexicalUnit::Atom(ch2) => neg && ch == ch2,
 			LexicalUnit::Not(a) => {
 				if let LexicalUnit::Atom(ch2) = self.nodes[a].lexical_unit {
-					return ch == ch2
+					return ch == ch2;
 				}
 				false
 			}
-			_ => {false}
+			_ => false,
 		}
 	}
 
@@ -99,31 +95,20 @@ impl PropTree {
 	fn to_string_recurse(&self, id: usize) -> String {
 		match self.nodes[id].lexical_unit {
 			LexicalUnit::And(a, b) => {
-				"&(".to_string() +
-				&self.to_string_recurse(a) +
-				" " +
-				&self.to_string_recurse(b) +
-				")"
-			},
-			LexicalUnit::Or(a, b) => {
-				"|(".to_string() +
-				&self.to_string_recurse(a) +
-				" " +
-				&self.to_string_recurse(b) +
-				")"
-			},
-			LexicalUnit::Not(a) => {
-				"!".to_string() +
-				&self.to_string_recurse(a)
-			},
-			LexicalUnit::Atom(ch) => {
-				ch.to_string()
+				"&(".to_string()
+					+ &self.to_string_recurse(a)
+					+ " " + &self.to_string_recurse(b)
+					+ ")"
 			}
+			LexicalUnit::Or(a, b) => {
+				"|(".to_string()
+					+ &self.to_string_recurse(a)
+					+ " " + &self.to_string_recurse(b)
+					+ ")"
+			}
+			LexicalUnit::Not(a) => "!".to_string() + &self.to_string_recurse(a),
+			LexicalUnit::Atom(ch) => ch.to_string(),
 		}
-	}
-
-	fn to_string(&self) -> String {
-		self.to_string_recurse(self.nodes.len() - 1)
 	}
 
 	fn clone_subtree_recurse(&self, new_tree: &mut PropTree, id: usize) -> usize {
@@ -132,7 +117,7 @@ impl PropTree {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
 				let b1 = self.clone_subtree_recurse(new_tree, *b);
 				new_tree.push_node(LexicalUnit::And(a1, b1))
-			},
+			}
 			LexicalUnit::Or(a, b) => {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
 				let b1 = self.clone_subtree_recurse(new_tree, *b);
@@ -142,9 +127,7 @@ impl PropTree {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
 				new_tree.push_node(LexicalUnit::Not(a1))
 			}
-			atom => {
-				new_tree.push_node(*atom)
-			}
+			atom => new_tree.push_node(*atom),
 		}
 	}
 
@@ -161,23 +144,27 @@ impl PropTree {
 				let a1 = self.push_node(LexicalUnit::Not(a));
 				let b1 = self.push_node(LexicalUnit::Not(b));
 				self.push_node(LexicalUnit::Or(a1, b1));
-			},
+			}
 			LexicalUnit::Or(a, b) => {
 				self.nodes.pop();
 				let a1 = self.push_node(LexicalUnit::Not(a));
 				let b1 = self.push_node(LexicalUnit::Not(b));
 				self.push_node(LexicalUnit::And(a1, b1));
-			},
+			}
 			LexicalUnit::Not(_) => {
 				self.nodes.pop();
-			},
+			}
 			LexicalUnit::Atom(_) => {
-				self.push_node(LexicalUnit::Not(
-					self.nodes[self.nodes.len() - 1].id
-				));
+				self.push_node(LexicalUnit::Not(self.nodes[self.nodes.len() - 1].id));
 			}
 		}
 		self
+	}
+}
+
+impl std::fmt::Display for PropTree {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		write!(f, "{}", self.to_string_recurse(self.nodes.len() - 1))
 	}
 }
 
@@ -199,11 +186,12 @@ struct TruthTree {
 	nodes: Vec<TruthTreeNode>,
 }
 
+static mut INDENT: String = String::new();
+
 impl TruthTree {
 	fn new(prop_tree: PropTree) -> TruthTree {
 		TruthTree {
 			nodes: vec![TruthTreeNode {
-				id: 0,
 				data: TruthTreeNodeData::Leaf(VecDeque::from(vec![prop_tree.negate()])),
 				parent: None,
 			}],
@@ -213,7 +201,6 @@ impl TruthTree {
 	fn push_node(&mut self, parent_id: usize, data: TruthTreeNodeData) -> usize {
 		let id = self.nodes.len();
 		self.nodes.push(TruthTreeNode {
-			id,
 			data,
 			parent: Some(parent_id),
 		});
@@ -225,11 +212,11 @@ impl TruthTree {
 		loop {
 			id = self.nodes[id.unwrap()].parent;
 			match id {
-				None => { return false },
+				None => return false,
 				Some(id) => {
 					if let TruthTreeNodeData::Stable(prop_tree) = &self.nodes[id].data {
 						if prop_tree.atom_check(ch, neg) {
-							return true
+							return true;
 						}
 					} else {
 						panic!("Leaf not at leaf position!");
@@ -241,55 +228,67 @@ impl TruthTree {
 
 	// id must point to a leaf
 	fn prove_recurse(&mut self, id: usize) -> bool {
+		unsafe {
+			INDENT.push('│');
+		}
 		// fetch last sentence in leaf
-		let mut prop_tree = if let TruthTreeNodeData::Leaf(prop_tree_list) = &mut self.nodes[id].data {
-			if prop_tree_list.len() == 0 {
-				return false
+		let mut prop_tree =
+			if let TruthTreeNodeData::Leaf(prop_tree_list) = &mut self.nodes[id].data {
+				if prop_tree_list.is_empty() {
+					return false;
+				} else {
+					prop_tree_list.pop_front().unwrap()
+				}
 			} else {
-				prop_tree_list.pop_front().unwrap()
-			}
-		} else { unreachable!() };
-		println!("{}", prop_tree.to_string());
+				unreachable!()
+			};
+		unsafe {
+			println!("{}{}", INDENT, prop_tree.to_string());
+		}
 
 		// drain leaf, this node will be stablized
 		let mut leaf: VecDeque<PropTree> = match &mut self.nodes[id].data {
-			TruthTreeNodeData::Leaf(prop_tree_list) => {prop_tree_list.drain(..).collect()},
-			_ => {unreachable!()},
+			TruthTreeNodeData::Leaf(prop_tree_list) => prop_tree_list.drain(..).collect(),
+			_ => unreachable!(),
 		};
 
 		self.nodes[id].data = TruthTreeNodeData::Stable(prop_tree.clone());
 		// break last sentence
 		let lexical_unit = prop_tree.nodes.last().unwrap().lexical_unit;
-		match lexical_unit {
+		let result = (|| match lexical_unit {
 			LexicalUnit::And(a, b) => {
 				let tree_a = prop_tree.clone_subtree(a);
 				let tree_b = prop_tree.clone_subtree(b);
-				leaf.push_back(tree_a.clone());
-				leaf.push_back(tree_b.clone());
+				leaf.push_back(tree_a);
+				leaf.push_back(tree_b);
 
 				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 				self.prove_recurse(id)
-			},
+			}
 			LexicalUnit::Or(a, b) => {
 				let tree_a = prop_tree.clone_subtree(a);
 				let tree_b = prop_tree.clone_subtree(b);
 				let mut leaf_a = leaf.clone();
-				leaf_a.push_back(tree_a.clone());
+				leaf_a.push_back(tree_a);
 				let mut leaf_b = leaf;
-				leaf_b.push_back(tree_b.clone());
+				leaf_b.push_back(tree_b);
 
 				let id_a = self.push_node(id, TruthTreeNodeData::Leaf(leaf_a));
-				if !self.prove_recurse(id_a) { return false }
+				if !self.prove_recurse(id_a) {
+					return false;
+				}
 				let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
 				self.prove_recurse(id_b)
-			},
+			}
 			LexicalUnit::Not(a) => {
 				let lexical_unit = prop_tree.nodes[a].lexical_unit;
 
 				match lexical_unit {
 					LexicalUnit::Atom(ch) => {
-						if self.upmatch(id, ch, true) { return true }
-					},
+						if self.upmatch(id, ch, true) {
+							return true;
+						}
+					}
 					_ => {
 						prop_tree.nodes.pop();
 						prop_tree = prop_tree.negate();
@@ -298,14 +297,21 @@ impl TruthTree {
 				}
 				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 				self.prove_recurse(id)
-			},
+			}
 			LexicalUnit::Atom(ch) => {
-				if self.upmatch(id, ch, true) { return true }
+				if self.upmatch(id, ch, true) {
+					return true;
+				}
 
 				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 				self.prove_recurse(id)
-			},
+			}
+		})();
+		unsafe {
+			INDENT.pop();
+			println!("{}{}", INDENT, result);
 		}
+		result
 	}
 
 	fn prove(&mut self) -> bool {
@@ -314,7 +320,6 @@ impl TruthTree {
 }
 
 struct TruthTreeNode {
-	id: usize,
 	data: TruthTreeNodeData,
 	parent: Option<usize>,
 }
@@ -328,6 +333,9 @@ fn disp(string: &str) {
 	let prop_tree = PropTree::from_string(string);
 	println!("{}", prop_tree.to_string());
 	let mut truth_tree = TruthTree::new(prop_tree);
+	unsafe {
+		INDENT = String::new();
+	}
 	println!("{}", truth_tree.prove());
 	println!();
 }
@@ -337,4 +345,5 @@ fn main() {
 	disp("|(a !(a))");
 	disp("=(>(a b) >(!(b) !(a)))");
 	disp("&(a !(|(a b)))");
+	disp("|(&(a c) |(!a b))");
 }
