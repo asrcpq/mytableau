@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PropTree {
 	nodes: Vec<PropTreeNode>,
 }
@@ -10,6 +10,25 @@ impl PropTree {
 	fn new() -> PropTree {
 		PropTree {
 			nodes: Vec::new(),
+		}
+	}
+
+	fn atom_check(&self, ch: char, neg: bool) -> bool {
+		let lexical_unit = match self.nodes.last() {
+			Some(node) => { node.lexical_unit },
+			None => { return false },
+		};
+		match lexical_unit {
+			LexicalUnit::Atom(ch2) => {
+				neg == true && ch == ch2
+			},
+			LexicalUnit::Not(a) => {
+				if let LexicalUnit::Atom(ch2) = self.nodes[a].lexical_unit {
+					return ch == ch2
+				}
+				false
+			}
+			_ => {false}
 		}
 	}
 
@@ -31,7 +50,7 @@ impl PropTree {
 		let mut token_stack: VecDeque<TokenOrUnit> = VecDeque::new();
 		for each_char in string.chars() {
 			match each_char {
-				'a'..='z' | '(' | '&' | '|' | '!' => {
+				'a'..='z' | '(' | '&' | '|' | '!' | '>' | '=' => {
 					token_stack.push_back(TokenOrUnit::Token(each_char))
 				}
 				')' => {
@@ -56,6 +75,17 @@ impl PropTree {
 							result.push_node(LexicalUnit::Or(id_list[1], id_list[0]))
 						}
 						TokenOrUnit::Token('!') => result.push_node(LexicalUnit::Not(id_list[0])),
+						TokenOrUnit::Token('>') => {
+							let id = result.push_node(LexicalUnit::Not(id_list[1]));
+							result.push_node(LexicalUnit::Or(id, id_list[0]))
+						}
+						TokenOrUnit::Token('=') => {
+							let id1 = result.push_node(LexicalUnit::Not(id_list[1]));
+							let id1 = result.push_node(LexicalUnit::Or(id1, id_list[0]));
+							let id2 = result.push_node(LexicalUnit::Not(id_list[0]));
+							let id2 = result.push_node(LexicalUnit::Or(id2, id_list[1]));
+							result.push_node(LexicalUnit::And(id1, id2))
+						}
 						_ => unreachable!(),
 					};
 					token_stack.push_back(TokenOrUnit::Unit(new_id));
@@ -125,7 +155,7 @@ impl PropTree {
 	}
 
 	fn negate(mut self) -> PropTree {
-		match self.nodes[self.nodes.len() - 1].lexical_unit {
+		match self.nodes.last().unwrap().lexical_unit {
 			LexicalUnit::And(a, b) => {
 				self.nodes.pop();
 				let a1 = self.push_node(LexicalUnit::Not(a));
@@ -138,10 +168,10 @@ impl PropTree {
 				let b1 = self.push_node(LexicalUnit::Not(b));
 				self.push_node(LexicalUnit::And(a1, b1));
 			},
-			LexicalUnit::Not(a) => {
+			LexicalUnit::Not(_) => {
 				self.nodes.pop();
 			},
-			LexicalUnit::Atom(ch) => {
+			LexicalUnit::Atom(_) => {
 				self.push_node(LexicalUnit::Not(
 					self.nodes[self.nodes.len() - 1].id
 				));
@@ -151,7 +181,7 @@ impl PropTree {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PropTreeNode {
 	id: usize,
 	lexical_unit: LexicalUnit,
@@ -167,7 +197,6 @@ enum LexicalUnit {
 
 struct TruthTree {
 	nodes: Vec<TruthTreeNode>,
-	leaf_list: Vec<usize>,
 }
 
 impl TruthTree {
@@ -175,45 +204,137 @@ impl TruthTree {
 		TruthTree {
 			nodes: vec![TruthTreeNode {
 				id: 0,
-				data: TruthTreeNodeData::Leaf(vec![prop_tree]),
-				children: Vec::new(),
+				data: TruthTreeNodeData::Leaf(VecDeque::from(vec![prop_tree.negate()])),
 				parent: None,
 			}],
-			leaf_list: vec![0],
+		}
+	}
+
+	fn push_node(&mut self, parent_id: usize, data: TruthTreeNodeData) -> usize {
+		let id = self.nodes.len();
+		self.nodes.push(TruthTreeNode {
+			id,
+			data,
+			parent: Some(parent_id),
+		});
+		id
+	}
+
+	fn upmatch(&self, id: usize, ch: char, neg: bool) -> bool {
+		let mut id: Option<usize> = Some(id);
+		loop {
+			id = self.nodes[id.unwrap()].parent;
+			match id {
+				None => { return false },
+				Some(id) => {
+					if let TruthTreeNodeData::Stable(prop_tree) = &self.nodes[id].data {
+						if prop_tree.atom_check(ch, neg) {
+							return true
+						}
+					} else {
+						panic!("Leaf not at leaf position!");
+					}
+				}
+			}
+		}
+	}
+
+	// id must point to a leaf
+	fn prove_recurse(&mut self, id: usize) -> bool {
+		// fetch last sentence in leaf
+		let mut prop_tree = if let TruthTreeNodeData::Leaf(prop_tree_list) = &mut self.nodes[id].data {
+			if prop_tree_list.len() == 0 {
+				return false
+			} else {
+				prop_tree_list.pop_front().unwrap()
+			}
+		} else { unreachable!() };
+		println!("{}", prop_tree.to_string());
+
+		// drain leaf, this node will be stablized
+		let mut leaf: VecDeque<PropTree> = match &mut self.nodes[id].data {
+			TruthTreeNodeData::Leaf(prop_tree_list) => {prop_tree_list.drain(..).collect()},
+			_ => {unreachable!()},
+		};
+
+		self.nodes[id].data = TruthTreeNodeData::Stable(prop_tree.clone());
+		// break last sentence
+		let lexical_unit = prop_tree.nodes.last().unwrap().lexical_unit;
+		match lexical_unit {
+			LexicalUnit::And(a, b) => {
+				let tree_a = prop_tree.clone_subtree(a);
+				let tree_b = prop_tree.clone_subtree(b);
+				leaf.push_back(tree_a.clone());
+				leaf.push_back(tree_b.clone());
+
+				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
+				self.prove_recurse(id)
+			},
+			LexicalUnit::Or(a, b) => {
+				let tree_a = prop_tree.clone_subtree(a);
+				let tree_b = prop_tree.clone_subtree(b);
+				let mut leaf_a = leaf.clone();
+				leaf_a.push_back(tree_a.clone());
+				let mut leaf_b = leaf;
+				leaf_b.push_back(tree_b.clone());
+
+				let id_a = self.push_node(id, TruthTreeNodeData::Leaf(leaf_a));
+				if !self.prove_recurse(id_a) { return false }
+				let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
+				self.prove_recurse(id_b)
+			},
+			LexicalUnit::Not(a) => {
+				let lexical_unit = prop_tree.nodes[a].lexical_unit;
+
+				match lexical_unit {
+					LexicalUnit::Atom(ch) => {
+						if self.upmatch(id, ch, true) { return true }
+					},
+					_ => {
+						prop_tree.nodes.pop();
+						prop_tree = prop_tree.negate();
+						leaf.push_back(prop_tree);
+					}
+				}
+				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
+				self.prove_recurse(id)
+			},
+			LexicalUnit::Atom(ch) => {
+				if self.upmatch(id, ch, true) { return true }
+
+				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
+				self.prove_recurse(id)
+			},
 		}
 	}
 
 	fn prove(&mut self) -> bool {
-		while !self.leaf_list.is_empty() {
-			let mut truth_tree_node = self.nodes[self.leaf_list.pop().unwrap()];
-			let prop_tree = match truth_tree_node.data {
-				Stable(prop_tree) => {
-					panic!("Not a leaf!");
-				}
-				Leaf(prop_tree_list) => {
-					prop_tree_list.pop()
-				}
-			};
-			let mut leaves = mem::replace(
-				&mut truth_tree_node.data,
-				prop_tree,
-			)
-		}
+		self.prove_recurse(0)
 	}
 }
 
 struct TruthTreeNode {
 	id: usize,
 	data: TruthTreeNodeData,
-	children: Vec<usize>,
 	parent: Option<usize>,
 }
 
 enum TruthTreeNodeData {
-	Leaf(Vec<PropTree>),
+	Leaf(VecDeque<PropTree>),
 	Stable(PropTree),
 }
 
+fn disp(string: &str) {
+	let prop_tree = PropTree::from_string(string);
+	println!("{}", prop_tree.to_string());
+	let mut truth_tree = TruthTree::new(prop_tree);
+	println!("{}", truth_tree.prove());
+	println!();
+}
+
 fn main() {
-	println!("{}", PropTree::from_string("|(b |(&(b !(a)) a))").clone_subtree(6).negate().to_string());
+	disp("|(b |(&(b !(a)) a))");
+	disp("|(a !(a))");
+	disp("=(>(a b) >(!(b) !(a)))");
+	disp("&(a !(|(a b)))");
 }
