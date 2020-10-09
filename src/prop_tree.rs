@@ -142,7 +142,7 @@ impl PropTree {
 		}
 	}
 
-	pub fn clone_subtree_recurse(&self, new_tree: &mut PropTree, id: usize) -> usize {
+	fn clone_subtree_recurse(&self, new_tree: &mut PropTree, id: usize) -> usize {
 		match &self.nodes[id].lexical_unit {
 			LexicalUnit::And(a, b) => {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
