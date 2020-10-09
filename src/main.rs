@@ -1,3 +1,6 @@
+#![feature(proc_macro_hygiene)]
+extern crate plex;
+
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
@@ -38,60 +41,89 @@ impl PropTree {
 	}
 
 	fn from_string(string: &str) -> PropTree {
+		use plex::lexer;
 		let mut result: PropTree = PropTree { nodes: Vec::new() };
+		#[derive(Debug)]
 		enum TokenOrUnit {
-			Token(String),
+			Ident(String),
+			LeftParenthesis,
+			RightParenthesis,
+			And,
+			Or,
+			Not,
+			Imply,
+			Xnor,
+			Whitespace,
 			Unit(usize),
 		}
+		lexer! {
+			fn next_token(text: 'a) -> TokenOrUnit;
+
+			r#"[ ]+"# => TokenOrUnit::Whitespace,
+			r#"[A-Za-z]+"# => TokenOrUnit::Ident(text.to_owned()),
+			r#"\("# => TokenOrUnit::LeftParenthesis,
+			r#"\)"# => TokenOrUnit::RightParenthesis,
+			r#"\&"# => TokenOrUnit::And,
+			r#"\|"# => TokenOrUnit::Or,
+			r#"!"# => TokenOrUnit::Not,
+			r#">"# => TokenOrUnit::Imply,
+			r#"="# => TokenOrUnit::Xnor,
+			r#"."# => panic!("Unexpected character: {}", text),
+		}
 		let mut token_stack: VecDeque<TokenOrUnit> = VecDeque::new();
-		for each_char in string.chars() {
-			match each_char {
-				'a'..='z' | '(' | '&' | '|' | '!' | '>' | '=' => {
-					token_stack.push_back(TokenOrUnit::Token(String::from(each_char)))
-				}
-				')' => {
-					let mut id_list = Vec::new();
-					loop {
-						let tou = token_stack.pop_back().unwrap();
-						match tou {
-							TokenOrUnit::Token(ref string) if *string == "(" => break,
-							TokenOrUnit::Token(string) => {
-								id_list.push(result.push_node(LexicalUnit::Atom(string)));
+		let mut remaining = string;
+		loop {
+			if let Some((token, new_remaining)) = next_token(remaining) {
+				match token {
+					TokenOrUnit::Whitespace => {},
+					TokenOrUnit::Unit(_) => unreachable!(),
+					TokenOrUnit::RightParenthesis => {
+						let mut id_list = Vec::new();
+						loop {
+							let tou = token_stack.pop_back().unwrap();
+							match tou {
+								TokenOrUnit::LeftParenthesis => break,
+								TokenOrUnit::Ident(string) => {
+									id_list.push(result.push_node(LexicalUnit::Atom(string)));
+								}
+								TokenOrUnit::Unit(id) => id_list.push(id),
+								_ => panic!("Find operator during RPar collapsing"),
 							}
-							TokenOrUnit::Unit(id) => {
-								id_list.push(id);
+						}
+						let new_id = match token_stack.pop_back().unwrap() {
+							TokenOrUnit::And => {
+								result.push_node(LexicalUnit::And(id_list[1], id_list[0]))
 							}
-						}
-					}
-					let new_id = match token_stack.pop_back().unwrap() {
-						TokenOrUnit::Token(ref string) if string == "&" => {
-							result.push_node(LexicalUnit::And(id_list[1], id_list[0]))
-						}
-						TokenOrUnit::Token(ref string) if string == "|" => {
-							result.push_node(LexicalUnit::Or(id_list[1], id_list[0]))
-						}
-						TokenOrUnit::Token(ref string) if string == "!" => {
-							result.push_node(LexicalUnit::Not(id_list[0]))
-						}
-						TokenOrUnit::Token(ref string) if string == ">" => {
-							let id = result.push_node(LexicalUnit::Not(id_list[1]));
-							result.push_node(LexicalUnit::Or(id, id_list[0]))
-						}
-						TokenOrUnit::Token(ref string) if string == "=" => {
-							let id1 = result.push_node(LexicalUnit::Not(id_list[1]));
-							let id1 = result.push_node(LexicalUnit::Or(id1, id_list[0]));
-							let id2 = result.push_node(LexicalUnit::Not(id_list[0]));
-							let id2 = result.push_node(LexicalUnit::Or(id2, id_list[1]));
-							result.push_node(LexicalUnit::And(id1, id2))
-						}
-						_ => unreachable!(),
-					};
-					token_stack.push_back(TokenOrUnit::Unit(new_id));
+							TokenOrUnit::Or => {
+								result.push_node(LexicalUnit::Or(id_list[1], id_list[0]))
+							}
+							TokenOrUnit::Not => {
+								result.push_node(LexicalUnit::Not(id_list[0]))
+							}
+							TokenOrUnit::Imply => {
+								let id = result.push_node(LexicalUnit::Not(id_list[1]));
+								result.push_node(LexicalUnit::Or(id, id_list[0]))
+							}
+							TokenOrUnit::Xnor => {
+								let id1 = result.push_node(LexicalUnit::Not(id_list[1]));
+								let id1 = result.push_node(LexicalUnit::Or(id1, id_list[0]));
+								let id2 = result.push_node(LexicalUnit::Not(id_list[0]));
+								let id2 = result.push_node(LexicalUnit::Or(id2, id_list[1]));
+								result.push_node(LexicalUnit::And(id1, id2))
+							}
+							_ => panic!("Function name invalid!"),
+						};
+						token_stack.push_back(TokenOrUnit::Unit(new_id));
+					},
+					any_token => {
+						token_stack.push_back(any_token)
+					},
 				}
-				_ => {}
+				remaining = new_remaining;
+			} else {
+				break result
 			}
 		}
-		result
 	}
 
 	fn to_string_recurse(&self, id: usize) -> String {
