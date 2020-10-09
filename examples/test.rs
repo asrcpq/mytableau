@@ -1,11 +1,7 @@
-#![feature(proc_macro_hygiene)]
-extern crate plex;
+extern crate mytableau;
 
-mod prop_tree;
-mod truth_tree;
-
-use prop_tree::PropTree;
-use truth_tree::TruthTree;
+use mytableau::prop_tree::PropTree;
+use mytableau::truth_tree::TruthTree;
 
 fn disp(string: &str) {
 	let prop_tree = PropTree::from_string(string);
