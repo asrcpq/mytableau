@@ -4,9 +4,10 @@ use mytableau::prop_tree::PropTree;
 use mytableau::truth_tree::TruthTree;
 
 fn disp(string: &str) {
-	let prop_tree = PropTree::from_string(string);
-	println!("{}", prop_tree.to_string());
-	let mut truth_tree = TruthTree::new(vec![prop_tree]);
+	let mut truth_tree = TruthTree::new(
+		string.split('\n').map(|string|
+			PropTree::from_string(string.trim())
+		).collect());
 	println!("{}", truth_tree.prove());
 	println!();
 }
@@ -17,7 +18,12 @@ fn disp(string: &str) {
 // |(&(a c) |(!(a) b))
 
 fn main() {
-	let prop1 = std::include_str!("data/prop1");
-	println!("{}", prop1);
-	disp(prop1);
+	for input_str in vec![
+		std::include_str!("data/prop0").trim(),
+		std::include_str!("data/prop1").trim(),
+		std::include_str!("data/dl2").trim(),
+	] {
+		println!("{}", input_str);
+		disp(input_str);
+	}
 }

@@ -1,4 +1,4 @@
-<(Unicorn Animal)
-<(Unicorn Fictitious)
-<(&(Fictitious Animal) Empty)
+>(Unicorn Animal)
+>(Unicorn Fictitious)
+>(&(Fictitious Animal) Bottom)
 Unicorn(cloverJollyBridle)

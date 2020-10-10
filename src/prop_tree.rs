@@ -31,10 +31,24 @@ impl PropTree {
 	}
 
 	pub fn atom_check(&self, prop_b: &PropTree) -> bool {
-		if self.root != prop_b.root {
-			return false;
+		if let Proposition::AConcept(string) = &self.root {
+			if let Proposition::AConcept(string2) = &prop_b.root {
+				if string != string2 {
+					return false
+				}
+			}
 		}
-		let prop = match self.nodes.last() {
+
+		//let flag = false;
+		//if let Proposition::ARole(x, y, z) == self.root {
+		//	flag = !flag;
+		//}
+		//if let Proposition::ARole(x, y, z) == self.root {
+		//	flag = !flag;
+		//}
+		//if flag { return false }
+
+		match self.nodes.last() {
 			Some(node) => &node.data,
 			// only Role has attribute of nodes.is_empty()
 			None => return prop_b.nodes.is_empty(),
@@ -59,8 +73,7 @@ impl PropTree {
 	}
 
 	// must be ident! or panic
-	pub fn pop_ident(&mut self) -> String {
-		let id = self.nodes.len();
+	fn pop_ident(&mut self) -> String {
 		match self.nodes.pop() {
 			Some(node) => {
 				if let Concept::Atom(string) = node.data {
@@ -97,7 +110,7 @@ impl PropTree {
 		lexer! {
 			pub fn next_token(text: 'a) -> TokenOrUnit;
 
-			r#"[ \n]+"# => TokenOrUnit::Whitespace,
+			r#"[ ]+"# => TokenOrUnit::Whitespace,
 			r#"[A-Za-z]+"# => TokenOrUnit::Ident(text.to_owned()),
 			r#"\("# => TokenOrUnit::LeftParenthesis,
 			r#"\)"# => TokenOrUnit::RightParenthesis,
@@ -108,7 +121,7 @@ impl PropTree {
 			r#"="# => TokenOrUnit::Xnor,
 			r#"@"# => TokenOrUnit::ForAll,
 			r#"#"# => TokenOrUnit::Exist,
-			r#"."# => panic!("Unexpected character: {}", text),
+			r#"."# => panic!("Unexpected character: {:?}", text),
 		}
 		let mut token_stack: VecDeque<TokenOrUnit> = VecDeque::new();
 		let mut remaining = string;
@@ -147,13 +160,21 @@ impl PropTree {
 						// ABox found, will override root
 						TokenOrUnit::Ident(string) => {
 							match id_list.len() {
-								2 => {
+								1 => {
 									result.root = Proposition::AConcept(result.pop_ident());
+									result.push_node(Concept::Atom(string));
 								}
-								3 => {
+								2 => {
 									let arg2 = result.pop_ident();
 									let arg1 = result.pop_ident();
-									result.root = Proposition::ARole(string, arg1, arg2);
+									// assume there is a not, without further check
+									if result.nodes.len() == 0 {
+										result.root = Proposition::ARole(true, string, arg1, arg2);
+									} else if result.nodes.len() == 1 {
+										result.root = Proposition::ARole(false, string, arg1, arg2);
+									} else {
+										panic!("ABox role detect in middle of sentence")
+									}
 								}
 								_ => {
 									panic!("ABox not a concept or role!");
@@ -247,7 +268,17 @@ impl PropTree {
 
 impl std::fmt::Display for PropTree {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "{}", self.to_string_recurse(self.nodes.len() - 1))
+		let mut result = match &self.root {
+			Proposition::ARole(t, a, b, c) => {
+				return write!(f, "{}{}({}, {})", if *t {"!"} else {""}, a.clone(), &b, &c)
+			}
+			_ => {String::new()},
+		};
+		result += &self.to_string_recurse(self.nodes.len() - 1);
+		if let Proposition::AConcept(a) = &self.root {
+			result = format!("{}({})", result, a);
+		}
+		write!(f, "{}", result)
 	}
 }
 
@@ -274,6 +305,6 @@ pub enum Proposition {
 	// For ABox concept, we need another concept and the name of individual
 	// Note that concept name is not stored here!
 	AConcept(String),
-	// For ABox role, we need three identifiers
-	ARole(String, String, String),
+	// For ABox role, we need three identifiers and negate flag
+	ARole(bool, String, String, String),
 }

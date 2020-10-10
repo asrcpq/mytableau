@@ -12,7 +12,7 @@ impl TruthTree {
 	pub fn new(prop_tree: Vec<PropTree>) -> TruthTree {
 		TruthTree {
 			nodes: vec![TruthTreeNode {
-				data: TruthTreeNodeData::Leaf(prop_tree.into_iter().map(|x| x.negate()).collect()),
+				data: TruthTreeNodeData::Leaf(VecDeque::from(prop_tree)),
 				parent: None,
 			}],
 		}
@@ -27,6 +27,7 @@ impl TruthTree {
 		id
 	}
 
+	// Collision -> true
 	fn upmatch(&self, id: usize) -> bool {
 		let mut id_upgoing: Option<usize> = Some(id);
 		loop {
@@ -56,13 +57,17 @@ impl TruthTree {
 	// id must point to a leaf
 	fn prove_recurse(&mut self, id: usize) -> bool {
 		unsafe {
-			INDENT.push('│');
+			if INDENT.chars().count() % 3 == 1 {
+				INDENT.push('┼');
+			} else {
+				INDENT.push('─');
+			}
 		}
 		// fetch last sentence in leaf
 		let mut prop_tree =
 			if let TruthTreeNodeData::Leaf(prop_tree_list) = &mut self.nodes[id].data {
 				if prop_tree_list.is_empty() {
-					return false;
+					return true;
 				} else {
 					prop_tree_list.pop_front().unwrap()
 				}
@@ -83,9 +88,9 @@ impl TruthTree {
 
 		#[allow(clippy::never_loop)]
 		let result = loop {
-			if let Proposition::ARole(_, _, _) = prop_tree.root {
+			if let Proposition::ARole(_, _, _, _) = prop_tree.root {
 				if self.upmatch(id) {
-					break true;
+					break false;
 				}
 
 				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
@@ -112,8 +117,8 @@ impl TruthTree {
 					leaf_b.push_back(tree_b);
 
 					let id_a = self.push_node(id, TruthTreeNodeData::Leaf(leaf_a));
-					if !self.prove_recurse(id_a) {
-						break false;
+					if self.prove_recurse(id_a) {
+						break true;
 					}
 					let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
 					break self.prove_recurse(id_b);
@@ -123,8 +128,10 @@ impl TruthTree {
 
 					match concept_unit {
 						Concept::Atom(string) => {
+							string == "Top" && break false;
+							string == "Bottom" && break true;
 							if self.upmatch(id) {
-								break true;
+								break false;
 							}
 						}
 						_ => {
@@ -137,8 +144,10 @@ impl TruthTree {
 					break self.prove_recurse(id);
 				}
 				Concept::Atom(string) => {
+					string == "Top" && break true;
+					string == "Bottom" && break false;
 					if self.upmatch(id) {
-						break true;
+						break false;
 					}
 
 					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
