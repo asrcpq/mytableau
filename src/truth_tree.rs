@@ -146,14 +146,14 @@ impl TruthTree {
 					let tree_a = prop_tree.clone_subtree(*a);
 					let tree_b = prop_tree.clone_subtree(*b);
 					let mut leaf_a = leaf.clone();
-					leaf_a.push_back(tree_a);
+					leaf_a.push_back(tree_b);
 					leaf_a.extend(unmatched.clone().into_iter());
 					let id_a = self.push_node(id, TruthTreeNodeData::Leaf(leaf_a));
 					if self.prove_recurse(id_a) {
 						break true;
 					}
 					let mut leaf_b = leaf;
-					leaf_b.push_back(tree_b);
+					leaf_b.push_back(tree_a);
 					leaf_b.extend(unmatched.into_iter());
 					let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
 					break self.prove_recurse(id_b);

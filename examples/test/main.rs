@@ -26,6 +26,7 @@ fn main() {
 		std::include_str!("data/dl1").trim(),
 		std::include_str!("data/dl2").trim(),
 		std::include_str!("data/dl3").trim(),
+		std::include_str!("data/k_branch/tmp").trim(),
 	] {
 		println!("{}", input_str);
 		disp(input_str);

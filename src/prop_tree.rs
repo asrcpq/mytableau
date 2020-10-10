@@ -112,7 +112,7 @@ impl PropTree {
 			pub fn next_token(text: 'a) -> TokenOrUnit;
 
 			r#"[ ]+"# => TokenOrUnit::Whitespace,
-			r#"[A-Za-z]+"# => TokenOrUnit::Ident(text.to_owned()),
+			r#"[A-Za-z0-9]+"# => TokenOrUnit::Ident(text.to_owned()),
 			r#"\("# => TokenOrUnit::LeftParenthesis,
 			r#"\)"# => TokenOrUnit::RightParenthesis,
 			r#"\&"# => TokenOrUnit::And,
