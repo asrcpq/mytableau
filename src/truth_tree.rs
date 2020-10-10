@@ -163,8 +163,12 @@ impl TruthTree {
 
 					match concept_unit {
 						Concept::Atom(string) => {
-							if string == "Top" { break false; }
-							if string == "Bottom" { break true; }
+							if string == "Top" {
+								break false;
+							}
+							if string == "Bottom" {
+								break true;
+							}
 							if self.upmatch(id) {
 								break false;
 							}
@@ -180,19 +184,18 @@ impl TruthTree {
 					break self.prove_recurse(id);
 				}
 				Concept::Atom(string) => {
-					if string == "Top" {}
-					else if string == "Bottom" {
+					if string == "Top" {
+					} else if string == "Bottom" {
 						if let Proposition::AConcept(_) = prop_tree.root {
 							break false;
 						}
-					}
-					else {
-					if self.upmatch(id) {
-						break false;
-					}
-					leaf.extend(unmatched.into_iter());
-					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-					break self.prove_recurse(id);
+					} else {
+						if self.upmatch(id) {
+							break false;
+						}
+						leaf.extend(unmatched.into_iter());
+						let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
+						break self.prove_recurse(id);
 					}
 				}
 				Concept::ForAll(string, _) => {

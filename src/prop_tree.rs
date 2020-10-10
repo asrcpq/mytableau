@@ -202,6 +202,19 @@ impl PropTree {
 			}
 			remaining = new_remaining;
 		}
+		// tackle with root node
+		if let Some(tou) = token_stack.pop_back() {
+			match tou {
+				TokenOrUnit::Unit(_) => {}
+				TokenOrUnit::Ident(string) => {
+					result.push_node(Concept::Atom(string));
+				}
+				_ => panic!("Trailing operator at beginning"),
+			}
+		}
+		if !token_stack.is_empty() {
+			panic!("Token remaining: {:?}", token_stack);
+		}
 		result
 	}
 
@@ -305,7 +318,7 @@ impl std::fmt::Display for PropTree {
 			Proposition::ARole(t, ident, ind1, ind2) => {
 				return write!(
 					f,
-					"{}{}({}, {})",
+					"{}{}({} {})",
 					if !*t { "!" } else { "" },
 					ident.clone(),
 					&ind1,
@@ -347,4 +360,48 @@ pub enum Proposition {
 	AConcept(String),
 	// For ABox role, we need three identifiers and negate flag
 	ARole(bool, String, String, String),
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	#[test]
+	fn test_from_string_to_string() {
+		assert_eq!(PropTree::from_string("!(&(a b))").to_string(), "!&(a b)");
+		// ABox role
+		assert_eq!(
+			PropTree::from_string("a(b c)").to_string(),
+			"a(b c)"
+		);
+	}
+
+	#[test]
+	fn test_negate() {
+		// Naive negate
+		assert_eq!(PropTree::from_string("a").negate().to_string(), "!a");
+		assert_eq!(
+			PropTree::from_string("!(&(a b))").negate().to_string(),
+			"&(a b)"
+		);
+		// Negate on and, or
+		assert_eq!(
+			PropTree::from_string("&(!(a) b)").negate().to_string(),
+			"|(!!a !b)"
+		);
+		assert_eq!(
+			PropTree::from_string("|(a &(b c))").negate().to_string(),
+			"&(!a !&(b c))"
+		);
+		assert_eq!(
+			PropTree::from_string("#(a !(b))").negate().to_string(),
+			"@a.!!b"
+		);
+	}
+
+	#[test]
+	#[should_panic]
+	fn test_from_string_failed() {
+		println!("{}", PropTree::from_string("&(a b").to_string());
+	}
 }
