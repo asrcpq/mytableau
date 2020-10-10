@@ -1,3 +1,4 @@
+use crate::truth_tree::TruthTree;
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
@@ -16,12 +17,12 @@ impl PropTree {
 	}
 
 	// must be concept
-	fn concept_atom_check(&self) -> Option<(bool, &str)> {
+	fn concept_atom_check(&self) -> Option<(bool, usize)> {
 		match self.nodes.last().unwrap().data {
-			Concept::Atom(ref string) => Some((true, string)),
+			Concept::Atom(aid) => Some((true, aid)),
 			Concept::Not(a) => {
-				if let Concept::Atom(ref string) = &self.nodes[a].data {
-					Some((false, string))
+				if let Concept::Atom(aid) = &self.nodes[a].data {
+					Some((false, *aid))
 				} else {
 					None
 				}
@@ -74,11 +75,11 @@ impl PropTree {
 	}
 
 	// must be ident! or panic
-	fn pop_ident(&mut self) -> String {
+	fn pop_ident(&mut self) -> usize {
 		match self.nodes.pop() {
 			Some(node) => {
-				if let Concept::Atom(string) = node.data {
-					string
+				if let Concept::Atom(aid) = node.data {
+					aid
 				} else {
 					panic!("pop_ident not string!")
 				}
@@ -87,7 +88,8 @@ impl PropTree {
 		}
 	}
 
-	pub fn from_string(string: &str) -> PropTree {
+	pub fn from_string<F>(string: &str, mut truth_tree: &mut TruthTree, alloc_aid: F) -> PropTree
+	where F: Fn(&mut TruthTree, Option<String>) -> usize {
 		use plex::lexer;
 		let mut result: PropTree = PropTree {
 			root: Proposition::TConcept, // Temporary value
@@ -139,7 +141,7 @@ impl PropTree {
 						match tou {
 							TokenOrUnit::LeftParenthesis => break,
 							TokenOrUnit::Ident(string) => {
-								id_list.push(result.push_node(Concept::Atom(string)));
+								id_list.push(result.push_node(Concept::Atom(alloc_aid(&mut truth_tree, Some(string)))));
 							}
 							TokenOrUnit::Unit(id) => id_list.push(id),
 							_ => panic!("Find operator during RPar collapsing"),
@@ -173,19 +175,17 @@ impl PropTree {
 							match id_list.len() {
 								1 => {
 									result.root = Proposition::AConcept(result.pop_ident());
-									result.push_node(Concept::Atom(string));
+									result.push_node(Concept::Atom(alloc_aid(&mut truth_tree, Some(string))));
 								}
 								2 => {
 									let arg1 = result.pop_ident();
 									let arg2 = result.pop_ident();
 									// assume there is a not, without further check
-									if result.nodes.is_empty() {
-										result.root = Proposition::ARole(true, string, arg1, arg2);
-									} else if result.nodes.len() == 1 {
-										result.root = Proposition::ARole(false, string, arg1, arg2);
-									} else {
-										panic!("ABox role detect in middle of sentence")
-									}
+									result.root = Proposition::ARole(match result.nodes.len() {
+										0 => true,
+										1 => false,
+										_ => panic!("ABox role detect in middle of sentence"),
+									}, alloc_aid(&mut truth_tree, Some(string)), arg1, arg2);
 								}
 								_ => {
 									panic!("ABox not a concept or role!");
@@ -207,7 +207,7 @@ impl PropTree {
 			match tou {
 				TokenOrUnit::Unit(_) => {}
 				TokenOrUnit::Ident(string) => {
-					result.push_node(Concept::Atom(string));
+					result.push_node(Concept::Atom(alloc_aid(&mut truth_tree, Some(string))));
 				}
 				_ => panic!("Trailing operator at beginning"),
 			}
@@ -346,9 +346,9 @@ pub enum Concept {
 	And(usize, usize),
 	Or(usize, usize),
 	Not(usize),
-	ForAll(String, usize),
-	Exist(String, usize),
-	Atom(String),
+	ForAll(usize, usize),
+	Exist(usize, usize),
+	Atom(usize),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -357,9 +357,9 @@ pub enum Proposition {
 	TConcept,
 	// For ABox concept, we need another concept and the name of individual
 	// Note that concept name is not stored here!
-	AConcept(String),
+	AConcept(usize),
 	// For ABox role, we need three identifiers and negate flag
-	ARole(bool, String, String, String),
+	ARole(bool, usize, usize, usize),
 }
 
 #[cfg(test)]
