@@ -1,0 +1,3 @@
+<(Home Primate)
+<(#(speakWith All) Home)
+<(!(#(speakWith All)) Primate)

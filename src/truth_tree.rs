@@ -1,5 +1,5 @@
 use crate::prop_tree::PropTree;
-use crate::prop_tree::LexicalUnit;
+use crate::prop_tree::{Concept, Proposition};
 use std::collections::VecDeque;
 
 pub struct TruthTree {
@@ -9,10 +9,10 @@ pub struct TruthTree {
 static mut INDENT: String = String::new();
 
 impl TruthTree {
-	pub fn new(prop_tree: PropTree) -> TruthTree {
+	pub fn new(prop_tree: Vec<PropTree>) -> TruthTree {
 		TruthTree {
 			nodes: vec![TruthTreeNode {
-				data: TruthTreeNodeData::Leaf(VecDeque::from(vec![prop_tree.negate()])),
+				data: TruthTreeNodeData::Leaf(prop_tree.into_iter().map(|x| x.negate()).collect()),
 				parent: None,
 			}],
 		}
@@ -27,19 +27,26 @@ impl TruthTree {
 		id
 	}
 
-	fn upmatch(&self, id: usize, string: &str, neg: bool) -> bool {
-		let mut id: Option<usize> = Some(id);
+	fn upmatch(&self, id: usize) -> bool {
+		let mut id_upgoing: Option<usize> = Some(id);
 		loop {
-			id = self.nodes[id.unwrap()].parent;
-			match id {
+			id_upgoing = self.nodes[id_upgoing.unwrap()].parent;
+			match id_upgoing {
 				None => return false,
-				Some(id) => {
-					if let TruthTreeNodeData::Stable(prop_tree) = &self.nodes[id].data {
-						if prop_tree.atom_check(string, neg) {
-							return true;
-						}
+				Some(id_upgoing) => {
+					if if let TruthTreeNodeData::Stable(prop) = &self.nodes[id_upgoing].data {
+						prop
 					} else {
-						panic!("Leaf not at leaf position!");
+						panic!("Leaf not at leaf position!")
+					}
+					.atom_check(
+						if let TruthTreeNodeData::Stable(prop_atom) = &self.nodes[id].data {
+							prop_atom
+						} else {
+							panic!("Leaf not at leaf position!")
+						},
+					) {
+						return true;
 					}
 				}
 			}
@@ -73,13 +80,21 @@ impl TruthTree {
 		};
 
 		self.nodes[id].data = TruthTreeNodeData::Stable(prop_tree.clone());
-		// break last sentence
-		let lexical_unit = &(&prop_tree.nodes.last().unwrap().lexical_unit);
 
 		#[allow(clippy::never_loop)]
 		let result = loop {
-			match lexical_unit {
-				LexicalUnit::And(a, b) => {
+			if let Proposition::ARole(_, _, _) = prop_tree.root {
+				if self.upmatch(id) {
+					break true;
+				}
+
+				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
+				break self.prove_recurse(id);
+			}
+
+			let concept_unit = &prop_tree.nodes.last().unwrap().data;
+			match concept_unit {
+				Concept::And(a, b) => {
 					let tree_a = prop_tree.clone_subtree(*a);
 					let tree_b = prop_tree.clone_subtree(*b);
 					leaf.push_back(tree_a);
@@ -88,7 +103,7 @@ impl TruthTree {
 					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 					break self.prove_recurse(id);
 				}
-				LexicalUnit::Or(a, b) => {
+				Concept::Or(a, b) => {
 					let tree_a = prop_tree.clone_subtree(*a);
 					let tree_b = prop_tree.clone_subtree(*b);
 					let mut leaf_a = leaf.clone();
@@ -103,12 +118,12 @@ impl TruthTree {
 					let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
 					break self.prove_recurse(id_b);
 				}
-				LexicalUnit::Not(a) => {
-					let lexical_unit = &(&prop_tree.nodes[*a].lexical_unit);
+				Concept::Not(a) => {
+					let concept_unit = &(&prop_tree.nodes[*a].data);
 
-					match lexical_unit {
-						LexicalUnit::Atom(string) => {
-							if self.upmatch(id, string, true) {
+					match concept_unit {
+						Concept::Atom(string) => {
+							if self.upmatch(id) {
 								break true;
 							}
 						}
@@ -121,13 +136,16 @@ impl TruthTree {
 					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 					break self.prove_recurse(id);
 				}
-				LexicalUnit::Atom(string) => {
-					if self.upmatch(id, string, true) {
+				Concept::Atom(string) => {
+					if self.upmatch(id) {
 						break true;
 					}
 
 					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
 					break self.prove_recurse(id);
+				}
+				_ => {
+					panic!("unsupported!");
 				}
 			}
 		};
@@ -139,7 +157,9 @@ impl TruthTree {
 	}
 
 	pub fn prove(&mut self) -> bool {
-		unsafe { INDENT = String::new(); }
+		unsafe {
+			INDENT = String::new();
+		}
 		self.prove_recurse(0)
 	}
 }
