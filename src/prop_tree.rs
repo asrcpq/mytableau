@@ -8,9 +8,9 @@ pub struct PropTree {
 
 impl PropTree {
 	// for clone subtree's new tree initialize
-	pub fn new() -> PropTree {
+	pub fn new(root: &Proposition) -> PropTree {
 		PropTree {
-			root: Proposition::TConcept,
+			root: root.clone(),
 			nodes: Vec::new(),
 		}
 	}
@@ -34,19 +34,20 @@ impl PropTree {
 		if let Proposition::AConcept(string) = &self.root {
 			if let Proposition::AConcept(string2) = &prop_b.root {
 				if string != string2 {
-					return false
+					return false;
 				}
 			}
 		}
 
-		//let flag = false;
-		//if let Proposition::ARole(x, y, z) == self.root {
-		//	flag = !flag;
-		//}
-		//if let Proposition::ARole(x, y, z) == self.root {
-		//	flag = !flag;
-		//}
-		//if flag { return false }
+		if let Proposition::ARole(f, x, y, z) = &self.root {
+			if let Proposition::ARole(f2, x2, y2, z2) = &prop_b.root {
+				return f != f2 && x == x2 && y == y2 && z == z2;
+			}
+			return false;
+		}
+		if let Proposition::ARole(_, _, _, _) = prop_b.root {
+			return false;
+		}
 
 		match self.nodes.last() {
 			Some(node) => &node.data,
@@ -125,6 +126,8 @@ impl PropTree {
 		}
 		let mut token_stack: VecDeque<TokenOrUnit> = VecDeque::new();
 		let mut remaining = string;
+		// A - B - C <<< D - TOKEN STACK
+		// A - B >>> C - D - ID LIST(C at tail)(until matched bracket)
 		while let Some((token, new_remaining)) = next_token(remaining) {
 			match token {
 				TokenOrUnit::Whitespace => {}
@@ -157,6 +160,14 @@ impl PropTree {
 							let id2 = result.push_node(Concept::Or(id2, id_list[1]));
 							result.push_node(Concept::And(id1, id2))
 						}
+						TokenOrUnit::ForAll => {
+							let arg = result.pop_ident();
+							result.push_node(Concept::ForAll(arg, id_list[0]))
+						}
+						TokenOrUnit::Exist => {
+							let arg = result.pop_ident();
+							result.push_node(Concept::Exist(arg, id_list[0]))
+						}
 						// ABox found, will override root
 						TokenOrUnit::Ident(string) => {
 							match id_list.len() {
@@ -165,10 +176,10 @@ impl PropTree {
 									result.push_node(Concept::Atom(string));
 								}
 								2 => {
-									let arg2 = result.pop_ident();
 									let arg1 = result.pop_ident();
+									let arg2 = result.pop_ident();
 									// assume there is a not, without further check
-									if result.nodes.len() == 0 {
+									if result.nodes.is_empty() {
 										result.root = Proposition::ARole(true, string, arg1, arg2);
 									} else if result.nodes.len() == 1 {
 										result.root = Proposition::ARole(false, string, arg1, arg2);
@@ -196,21 +207,20 @@ impl PropTree {
 
 	pub fn to_string_recurse(&self, id: usize) -> String {
 		match &self.nodes[id].data {
-			Concept::And(a, b) => {
-				"&(".to_string()
-					+ &self.to_string_recurse(*a)
-					+ " " + &self.to_string_recurse(*b)
-					+ ")"
-			}
-			Concept::Or(a, b) => {
-				"|(".to_string()
-					+ &self.to_string_recurse(*a)
-					+ " " + &self.to_string_recurse(*b)
-					+ ")"
-			}
+			Concept::And(a, b) => format!(
+				"&({} {})",
+				self.to_string_recurse(*a),
+				&self.to_string_recurse(*b)
+			),
+			Concept::Or(a, b) => format!(
+				"|({} {})",
+				self.to_string_recurse(*a),
+				&self.to_string_recurse(*b)
+			),
 			Concept::Not(a) => "!".to_string() + &self.to_string_recurse(*a),
 			Concept::Atom(ch) => ch.to_string(),
-			_ => panic!("Unsupported concept unit"),
+			Concept::ForAll(string, a) => format!("@{}.{}", string, self.to_string_recurse(*a)),
+			Concept::Exist(string, a) => format!("#{}.{}", string, self.to_string_recurse(*a)),
 		}
 	}
 
@@ -230,12 +240,20 @@ impl PropTree {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
 				new_tree.push_node(Concept::Not(a1))
 			}
-			atom => new_tree.push_node(atom.clone()),
+			Concept::Atom(string) => new_tree.push_node(Concept::Atom(string.clone())),
+			Concept::ForAll(string, a) => {
+				let a1 = self.clone_subtree_recurse(new_tree, *a);
+				new_tree.push_node(Concept::ForAll(string.clone(), a1))
+			}
+			Concept::Exist(string, a) => {
+				let a1 = self.clone_subtree_recurse(new_tree, *a);
+				new_tree.push_node(Concept::Exist(string.clone(), a1))
+			}
 		}
 	}
 
 	pub fn clone_subtree(&self, id: usize) -> PropTree {
-		let mut new_tree = Self::new();
+		let mut new_tree = Self::new(&self.root);
 		self.clone_subtree_recurse(&mut new_tree, id);
 		new_tree
 	}
@@ -260,7 +278,22 @@ impl PropTree {
 			Concept::Atom(_) => {
 				self.push_node(Concept::Not(self.nodes[self.nodes.len() - 1].id));
 			}
-			_ => panic!("Unsupported concept unit!"),
+			Concept::Exist(_, _) => {
+				if let Concept::Exist(string, a) = self.nodes.pop().unwrap().data {
+					let a1 = self.push_node(Concept::Not(a));
+					self.push_node(Concept::ForAll(string, a1));
+				} else {
+					unreachable!();
+				}
+			}
+			Concept::ForAll(_, _) => {
+				if let Concept::ForAll(string, a) = self.nodes.pop().unwrap().data {
+					let a1 = self.push_node(Concept::Not(a));
+					self.push_node(Concept::Exist(string, a1));
+				} else {
+					unreachable!();
+				}
+			}
 		}
 		self
 	}
@@ -269,10 +302,17 @@ impl PropTree {
 impl std::fmt::Display for PropTree {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		let mut result = match &self.root {
-			Proposition::ARole(t, a, b, c) => {
-				return write!(f, "{}{}({}, {})", if *t {"!"} else {""}, a.clone(), &b, &c)
+			Proposition::ARole(t, ident, ind1, ind2) => {
+				return write!(
+					f,
+					"{}{}({}, {})",
+					if !*t { "!" } else { "" },
+					ident.clone(),
+					&ind1,
+					&ind2,
+				)
 			}
-			_ => {String::new()},
+			_ => String::new(),
 		};
 		result += &self.to_string_recurse(self.nodes.len() - 1);
 		if let Proposition::AConcept(a) = &self.root {

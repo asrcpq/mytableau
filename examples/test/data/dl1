@@ -1,3 +1,4 @@
-<(Home Primate)
-<(#(speakWith All) Home)
-<(!(#(speakWith All)) Primate)
+>(Unicorn Animal)
+>(Unicorn Fictitious)
+>(&(Fictitious Animal) Bottom)
+Unicorn(cloverJollyBridle)

@@ -1,4 +1,3 @@
->(Unicorn Animal)
->(Unicorn Fictitious)
->(&(Fictitious Animal) Bottom)
-Unicorn(cloverJollyBridle)
+>(A &(B D))
+>(C D)
+!(>(A D))
