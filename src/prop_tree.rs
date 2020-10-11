@@ -1,5 +1,5 @@
 use crate::truth_tree::TruthTree;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Clone, Debug)]
 pub struct PropTree {
@@ -55,17 +55,17 @@ impl PropTree {
 			// only Role has attribute of nodes.is_empty()
 			None => return prop_b.nodes.is_empty(),
 		};
-		let (neg, string) = if let Some(tuple) = self.concept_atom_check() {
+		let (neg, aid) = if let Some(tuple) = self.concept_atom_check() {
 			tuple
 		} else {
 			return false;
 		};
-		let (neg2, string2) = if let Some(tuple) = prop_b.concept_atom_check() {
+		let (neg2, aid2) = if let Some(tuple) = prop_b.concept_atom_check() {
 			tuple
 		} else {
 			return false;
 		};
-		neg ^ neg2 && string == string2
+		neg ^ neg2 && aid == aid2
 	}
 
 	pub fn push_node(&mut self, concept: Concept) -> usize {
@@ -231,22 +231,26 @@ impl PropTree {
 		result
 	}
 
-	pub fn to_string_recurse(&self, id: usize) -> String {
+	fn to_string_recurse(&self, id: usize, name_dict: &HashMap<usize, String>) -> String {
 		match &self.nodes[id].data {
 			Concept::And(a, b) => format!(
 				"&({} {})",
-				self.to_string_recurse(*a),
-				&self.to_string_recurse(*b)
+				self.to_string_recurse(*a, name_dict),
+				&self.to_string_recurse(*b, name_dict)
 			),
 			Concept::Or(a, b) => format!(
 				"|({} {})",
-				self.to_string_recurse(*a),
-				&self.to_string_recurse(*b)
+				self.to_string_recurse(*a, name_dict),
+				&self.to_string_recurse(*b, name_dict)
 			),
-			Concept::Not(a) => "!".to_string() + &self.to_string_recurse(*a),
-			Concept::Atom(ch) => ch.to_string(),
-			Concept::ForAll(string, a) => format!("@{}.{}", string, self.to_string_recurse(*a)),
-			Concept::Exist(string, a) => format!("#{}.{}", string, self.to_string_recurse(*a)),
+			Concept::Not(a) => "!".to_string() + &self.to_string_recurse(*a, name_dict),
+			Concept::Atom(ch) => name_dict.get(ch).unwrap().to_string(),
+			Concept::ForAll(string, a) => {
+				format!("@{}.{}", string, self.to_string_recurse(*a, name_dict))
+			}
+			Concept::Exist(string, a) => {
+				format!("#{}.{}", string, self.to_string_recurse(*a, name_dict))
+			}
 		}
 	}
 
@@ -323,14 +327,11 @@ impl PropTree {
 		}
 		self
 	}
-}
 
-impl std::fmt::Display for PropTree {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	pub fn to_string(&self, name_dict: &HashMap<usize, String>) -> String {
 		let mut result = match &self.root {
 			Proposition::ARole(t, ident, ind1, ind2) => {
-				return write!(
-					f,
+				return format!(
 					"{}{}({} {})",
 					if !*t { "!" } else { "" },
 					ident.clone(),
@@ -340,11 +341,11 @@ impl std::fmt::Display for PropTree {
 			}
 			_ => String::new(),
 		};
-		result += &self.to_string_recurse(self.nodes.len() - 1);
+		result += &self.to_string_recurse(self.nodes.len() - 1, name_dict);
 		if let Proposition::AConcept(a) = &self.root {
-			result = format!("{}({})", result, a);
+			result = format!("{}({})", result, name_dict.get(&a).unwrap());
 		}
-		write!(f, "{}", result)
+		result
 	}
 }
 

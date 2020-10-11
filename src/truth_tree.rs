@@ -13,16 +13,29 @@ static mut INDENT: String = String::new();
 
 impl Default for TruthTree {
 	fn default() -> Self {
+		let mut name_dict = HashMap::new();
+		name_dict.insert(0, "Top".to_string());
+		name_dict.insert(1, "Bottom".to_string());
+		let mut rev_dict = HashMap::new();
+		rev_dict.insert("Top".to_string(), 0);
+		rev_dict.insert("Bottom".to_string(), 1);
 		TruthTree {
 			nodes: Vec::new(),
-			name_dict: HashMap::new(),
-			rev_dict: HashMap::new(),
+			name_dict,
+			rev_dict,
 			aid_max: 1,
 		}
 	}
 }
 
 impl TruthTree {
+	pub fn get_name(&self, aid: usize) -> &str {
+		match self.name_dict.get(&aid) {
+			Some(string) => &string,
+			None => "NotFound",
+		}
+	}
+
 	pub fn alloc_aid(&mut self, string: Option<String>) -> usize {
 		if let Some(string) = string.clone() {
 			match &string[..] {
@@ -71,13 +84,13 @@ impl TruthTree {
 		}
 	}
 
+	// Match at start point
 	// used for "for all"
 	// role: true or false, ident, optional individual name x, for ABox Concept, return a list of y
 	fn upmatch_role(&self, id: usize, role: (bool, usize, Option<usize>)) -> Vec<usize> {
 		let mut id_upgoing: Option<usize> = Some(id);
 		let mut result = Vec::new();
 		loop {
-			id_upgoing = self.nodes[id_upgoing.unwrap()].parent;
 			match id_upgoing {
 				None => return result,
 				Some(id_upgoing) => {
@@ -96,12 +109,13 @@ impl TruthTree {
 					}
 				}
 			}
+			id_upgoing = self.nodes[id_upgoing.unwrap()].parent;
 			// Note there is a continue above
 		}
 	}
 
 	// id must point to a leaf
-	fn prove_recurse(&mut self, id_parent: Option<usize>, mut leaf: Vec<PropTree>) -> bool {
+	fn prove_recurse(&mut self, id: Option<usize>, mut leaf: Vec<PropTree>) -> bool {
 		if cfg!(debug_assertions) {
 			unsafe {
 				if INDENT.chars().count() % 3 == 1 {
@@ -123,18 +137,17 @@ impl TruthTree {
 			if cfg!(debug_assertions) {
 				unsafe {
 					// println!("{}{:?}", INDENT, prop_tree);
-					println!("{}{}", INDENT, prop_tree.to_string());
+					println!("{}{}", INDENT, prop_tree.to_string(&self.name_dict));
 				}
 			}
 
-			let this_id = self.push_node(id_parent, prop_tree.clone());
-
 			if let Proposition::ARole(_, _, _, _) = prop_tree.root {
-				if self.upmatch(this_id) {
+				let id = self.push_node(id, prop_tree);
+				if self.upmatch(id) {
 					break false;
 				}
 				leaf.extend(unmatched.into_iter());
-				break self.prove_recurse(Some(this_id), leaf);
+				break self.prove_recurse(Some(id), leaf);
 			}
 
 			let concept_unit = &prop_tree.nodes.last().unwrap().data;
@@ -145,7 +158,7 @@ impl TruthTree {
 					leaf.push(tree_a);
 					leaf.push(tree_b);
 					leaf.extend(unmatched.into_iter());
-					break self.prove_recurse(Some(this_id), leaf);
+					break self.prove_recurse(id, leaf);
 				}
 				Concept::Or(a, b) => {
 					let tree_a = prop_tree.clone_subtree(*a);
@@ -153,13 +166,13 @@ impl TruthTree {
 					let mut leaf_a = leaf.clone();
 					leaf_a.push(tree_a);
 					leaf_a.extend(unmatched.clone().into_iter());
-					if self.prove_recurse(Some(this_id), leaf_a) {
+					if self.prove_recurse(id, leaf_a) {
 						break true;
 					}
 					let mut leaf_b = leaf;
 					leaf_b.push(tree_b);
 					leaf_b.extend(unmatched.into_iter());
-					break self.prove_recurse(Some(this_id), leaf_b);
+					break self.prove_recurse(id, leaf_b);
 				}
 				Concept::Not(a) => {
 					let concept_unit = &(&prop_tree.nodes[*a].data);
@@ -174,60 +187,66 @@ impl TruthTree {
 								// Bottom
 								break true;
 							}
-							if self.upmatch(this_id) {
+							let new_id = self.push_node(id, prop_tree.clone());
+							if self.upmatch(new_id) {
 								break false;
 							}
+							break self.prove_recurse(Some(new_id), leaf);
 						}
 						_ => {
 							prop_tree.nodes.pop();
 							prop_tree = prop_tree.negate();
 							leaf.push(prop_tree);
 							leaf.extend(unmatched.into_iter());
+							break self.prove_recurse(id, leaf);
 						}
 					}
-					break self.prove_recurse(Some(this_id), leaf);
 				}
 				Concept::Atom(aid) => {
 					if *aid == 0 {
 					} else if *aid == 1 {
-						if let Proposition::AConcept(_) = prop_tree.root {
-							break false;
-						}
+						break false;
+					// if let Proposition::AConcept(_) = prop_tree.root {
+					// 	break false;
+					// }
 					} else {
-						if self.upmatch(this_id) {
+						let id = self.push_node(id, prop_tree.clone());
+						if self.upmatch(id) {
 							break false;
 						}
 						leaf.extend(unmatched.into_iter());
-						break self.prove_recurse(Some(this_id), leaf);
+						break self.prove_recurse(Some(id), leaf);
 					}
 				}
 				Concept::ForAll(aid, _) => {
 					let mut has_match = false;
-					for each_y in self
-						.upmatch_role(
-							this_id,
-							(
-								true,
-								*aid,
-								match prop_tree.root {
-									Proposition::TConcept => None,
-									Proposition::AConcept(ind) => Some(ind),
-									_ => unreachable!(),
-								},
-							),
-						)
-						.into_iter()
-					{
-						has_match = true;
-						let mut prop_tree_new = prop_tree.clone();
-						// remove quantifier
-						prop_tree_new.nodes.pop();
-						prop_tree_new.root = Proposition::AConcept(each_y);
-						leaf.push(prop_tree_new);
+					if let Some(id) = id {
+						for each_y in self
+							.upmatch_role(
+								id,
+								(
+									true,
+									*aid,
+									match prop_tree.root {
+										Proposition::TConcept => None,
+										Proposition::AConcept(ind) => Some(ind),
+										_ => unreachable!(),
+									},
+								),
+							)
+							.into_iter()
+						{
+							has_match = true;
+							let mut prop_tree_new = prop_tree.clone();
+							// remove quantifier
+							prop_tree_new.nodes.pop();
+							prop_tree_new.root = Proposition::AConcept(each_y);
+							leaf.push(prop_tree_new);
+						}
 					}
 					if has_match {
 						leaf.extend(unmatched.into_iter());
-						break self.prove_recurse(Some(this_id), leaf);
+						break self.prove_recurse(id, leaf);
 					} else {
 						unmatched.push_back(prop_tree);
 					}
@@ -243,14 +262,14 @@ impl TruthTree {
 					prop_tree.root = Proposition::AConcept(y);
 					leaf.push(prop_tree);
 					leaf.extend(unmatched.into_iter());
-					break self.prove_recurse(Some(this_id), leaf);
+					break self.prove_recurse(id, leaf);
 				}
 			}
 		};
 		if cfg!(debug_assertions) {
 			unsafe {
 				INDENT.pop();
-				println!("{}{}", INDENT, result);
+				println!("{}{}", INDENT, if result { "#t" } else { "#f" });
 			}
 		}
 		result

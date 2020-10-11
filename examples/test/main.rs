@@ -20,14 +20,19 @@ fn disp(string: &str) {
 
 fn main() {
 	for input_str in vec![
-		// std::include_str!("data/prop0").trim(),
-		// std::include_str!("data/prop1").trim(),
-		// std::include_str!("data/dl1").trim(),
-		// std::include_str!("data/dl2").trim(),
-		// std::include_str!("data/dl3").trim(),
+		std::include_str!("data/prop0").trim(),
+		std::include_str!("data/prop1").trim(),
+		std::include_str!("data/dl1").trim(),
+		std::include_str!("data/dl2").trim(),
+		std::include_str!("data/dl3").trim(),
+		std::include_str!("data/dl4").trim(),
 		std::include_str!("data/k_branch/tmp").trim(),
 	] {
-		println!("{}", input_str.len());
+		if cfg!(debug_assertions) {
+			println!("{}", input_str);
+		} else {
+			println!("{}", input_str.len());
+		}
 		disp(input_str);
 	}
 }
