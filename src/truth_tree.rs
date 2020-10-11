@@ -11,8 +11,8 @@ pub struct TruthTree {
 
 static mut INDENT: String = String::new();
 
-impl TruthTree {
-	pub fn new() -> TruthTree {
+impl Default for TruthTree {
+	fn default() -> Self {
 		TruthTree {
 			nodes: Vec::new(),
 			name_dict: HashMap::new(),
@@ -20,38 +20,38 @@ impl TruthTree {
 			aid_max: 1,
 		}
 	}
-	pub fn load(&mut self, prop_tree: Vec<PropTree>) {
-		self.nodes = vec![TruthTreeNode {
-			data: TruthTreeNodeData::Leaf(VecDeque::from(prop_tree)),
-			parent: None,
-		}];
-	}
+}
 
+impl TruthTree {
 	pub fn alloc_aid(&mut self, string: Option<String>) -> usize {
 		if let Some(string) = string.clone() {
 			match &string[..] {
 				"Top" => return 0,
 				"Bottom" => return 1,
-				_ => {},
-			}
-			match self.rev_dict.get(&string) {
-				Some(id) => return *id,
 				_ => {}
+			}
+			if let Some(id) = self.rev_dict.get(&string) {
+				return *id;
 			}
 		}
 
 		self.aid_max += 1;
-		self.name_dict.insert(self.aid_max, string.clone().unwrap_or(format!("autoname{}", self.aid_max)));
-		self.rev_dict.insert(string.unwrap_or(format!("autoname{}", self.aid_max)),self.aid_max);
-		return self.aid_max;
+		self.name_dict.insert(
+			self.aid_max,
+			string
+				.clone()
+				.unwrap_or(format!("autoname{}", self.aid_max)),
+		);
+		self.rev_dict.insert(
+			string.unwrap_or(format!("autoname{}", self.aid_max)),
+			self.aid_max,
+		);
+		self.aid_max
 	}
 
-	fn push_node(&mut self, parent_id: usize, data: TruthTreeNodeData) -> usize {
+	fn push_node(&mut self, parent: Option<usize>, data: PropTree) -> usize {
 		let id = self.nodes.len();
-		self.nodes.push(TruthTreeNode {
-			data,
-			parent: Some(parent_id),
-		});
+		self.nodes.push(TruthTreeNode { data, parent });
 		id
 	}
 
@@ -63,18 +63,7 @@ impl TruthTree {
 			match id_upgoing {
 				None => return false,
 				Some(id_upgoing) => {
-					if if let TruthTreeNodeData::Stable(prop) = &self.nodes[id_upgoing].data {
-						prop
-					} else {
-						panic!("Leaf not at leaf position!")
-					}
-					.atom_check(
-						if let TruthTreeNodeData::Stable(prop_atom) = &self.nodes[id].data {
-							prop_atom
-						} else {
-							panic!("Leaf not at leaf position!")
-						},
-					) {
+					if self.nodes[id_upgoing].data.atom_check(&self.nodes[id].data) {
 						return true;
 					}
 				}
@@ -92,20 +81,18 @@ impl TruthTree {
 			match id_upgoing {
 				None => return result,
 				Some(id_upgoing) => {
-					if let TruthTreeNodeData::Stable(prop) = &self.nodes[id_upgoing].data {
-						if let Proposition::ARole(t, ident, ind1, ind2) = &prop.root {
-							// println!("try: {:?} vs {:?}", prop.root, role);
-							if role.0 == *t && role.1 == *ident {
-								if let Some(ref string) = role.2 {
-									if string != ind1 {
-										continue;
-									}
+					if let Proposition::ARole(t, ident, ind1, ind2) =
+						&self.nodes[id_upgoing].data.root
+					{
+						// println!("try: {:?} vs {:?}", prop.root, role);
+						if role.0 == *t && role.1 == *ident {
+							if let Some(ref string) = role.2 {
+								if string != ind1 {
+									continue;
 								}
-								result.push(*ind2);
 							}
+							result.push(*ind2);
 						}
-					} else {
-						panic!("Leaf not at leaf position!")
 					}
 				}
 			}
@@ -114,42 +101,40 @@ impl TruthTree {
 	}
 
 	// id must point to a leaf
-	fn prove_recurse(&mut self, id: usize) -> bool {
-		unsafe {
-			if INDENT.chars().count() % 3 == 1 {
-				INDENT.push('┼');
-			} else {
-				INDENT.push('─');
+	fn prove_recurse(&mut self, id_parent: Option<usize>, mut leaf: Vec<PropTree>) -> bool {
+		if cfg!(debug_assertions) {
+			unsafe {
+				if INDENT.chars().count() % 3 == 1 {
+					INDENT.push('┼');
+				} else {
+					INDENT.push('─');
+				}
 			}
 		}
 
-		// drain leaf, this node will be stablized
-		let mut leaf: VecDeque<PropTree> = match &mut self.nodes[id].data {
-			TruthTreeNodeData::Leaf(prop_tree_list) => prop_tree_list.drain(..).collect(),
-			_ => unreachable!(),
-		};
 		let mut unmatched = VecDeque::new();
 		let result = loop {
 			// fetch last sentence in leaf
 			let mut prop_tree = if leaf.is_empty() {
 				return true;
 			} else {
-				leaf.pop_front().unwrap()
+				leaf.pop().unwrap()
 			};
-			 unsafe {
-				// println!("{}{:?}", INDENT, prop_tree);
-				println!("{}{}", INDENT, prop_tree.to_string());
+			if cfg!(debug_assertions) {
+				unsafe {
+					// println!("{}{:?}", INDENT, prop_tree);
+					println!("{}{}", INDENT, prop_tree.to_string());
+				}
 			}
 
-			self.nodes[id].data = TruthTreeNodeData::Stable(prop_tree.clone());
+			let this_id = self.push_node(id_parent, prop_tree.clone());
 
 			if let Proposition::ARole(_, _, _, _) = prop_tree.root {
-				if self.upmatch(id) {
+				if self.upmatch(this_id) {
 					break false;
 				}
 				leaf.extend(unmatched.into_iter());
-				let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-				break self.prove_recurse(id);
+				break self.prove_recurse(Some(this_id), leaf);
 			}
 
 			let concept_unit = &prop_tree.nodes.last().unwrap().data;
@@ -157,52 +142,50 @@ impl TruthTree {
 				Concept::And(a, b) => {
 					let tree_a = prop_tree.clone_subtree(*a);
 					let tree_b = prop_tree.clone_subtree(*b);
-					leaf.push_back(tree_a);
-					leaf.push_back(tree_b);
+					leaf.push(tree_a);
+					leaf.push(tree_b);
 					leaf.extend(unmatched.into_iter());
-					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-					break self.prove_recurse(id);
+					break self.prove_recurse(Some(this_id), leaf);
 				}
 				Concept::Or(a, b) => {
 					let tree_a = prop_tree.clone_subtree(*a);
 					let tree_b = prop_tree.clone_subtree(*b);
 					let mut leaf_a = leaf.clone();
-					leaf_a.push_back(tree_a);
+					leaf_a.push(tree_a);
 					leaf_a.extend(unmatched.clone().into_iter());
-					let id_a = self.push_node(id, TruthTreeNodeData::Leaf(leaf_a));
-					if self.prove_recurse(id_a) {
+					if self.prove_recurse(Some(this_id), leaf_a) {
 						break true;
 					}
 					let mut leaf_b = leaf;
-					leaf_b.push_back(tree_b);
+					leaf_b.push(tree_b);
 					leaf_b.extend(unmatched.into_iter());
-					let id_b = self.push_node(id, TruthTreeNodeData::Leaf(leaf_b));
-					break self.prove_recurse(id_b);
+					break self.prove_recurse(Some(this_id), leaf_b);
 				}
 				Concept::Not(a) => {
 					let concept_unit = &(&prop_tree.nodes[*a].data);
 
 					match concept_unit {
 						Concept::Atom(aid) => {
-							if *aid == 0 { // Top
+							if *aid == 0 {
+								// Top
 								break false;
 							}
-							if *aid == 1 { // Bottom
+							if *aid == 1 {
+								// Bottom
 								break true;
 							}
-							if self.upmatch(id) {
+							if self.upmatch(this_id) {
 								break false;
 							}
 						}
 						_ => {
 							prop_tree.nodes.pop();
 							prop_tree = prop_tree.negate();
-							leaf.push_back(prop_tree);
+							leaf.push(prop_tree);
 							leaf.extend(unmatched.into_iter());
 						}
 					}
-					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-					break self.prove_recurse(id);
+					break self.prove_recurse(Some(this_id), leaf);
 				}
 				Concept::Atom(aid) => {
 					if *aid == 0 {
@@ -211,25 +194,24 @@ impl TruthTree {
 							break false;
 						}
 					} else {
-						if self.upmatch(id) {
+						if self.upmatch(this_id) {
 							break false;
 						}
 						leaf.extend(unmatched.into_iter());
-						let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-						break self.prove_recurse(id);
+						break self.prove_recurse(Some(this_id), leaf);
 					}
 				}
 				Concept::ForAll(aid, _) => {
 					let mut has_match = false;
 					for each_y in self
 						.upmatch_role(
-							id,
+							this_id,
 							(
 								true,
 								*aid,
 								match prop_tree.root {
 									Proposition::TConcept => None,
-									Proposition::AConcept(ref ind) => Some(ind.clone()),
+									Proposition::AConcept(ind) => Some(ind),
 									_ => unreachable!(),
 								},
 							),
@@ -241,12 +223,11 @@ impl TruthTree {
 						// remove quantifier
 						prop_tree_new.nodes.pop();
 						prop_tree_new.root = Proposition::AConcept(each_y);
-						leaf.push_back(prop_tree_new);
+						leaf.push(prop_tree_new);
 					}
 					if has_match {
 						leaf.extend(unmatched.into_iter());
-						let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-						break self.prove_recurse(id);
+						break self.prove_recurse(Some(this_id), leaf);
 					} else {
 						unmatched.push_back(prop_tree);
 					}
@@ -256,43 +237,34 @@ impl TruthTree {
 				Concept::Exist(aid, _) => {
 					let x = self.alloc_aid(None);
 					let y = self.alloc_aid(None);
-					leaf.push_back(PropTree::new(&Proposition::ARole(
-						true,
-						aid.clone(),
-						x,
-						y.clone(),
-					)));
+					leaf.push(PropTree::new(&Proposition::ARole(true, *aid, x, y)));
 					// remove quantifier
 					prop_tree.nodes.pop();
 					prop_tree.root = Proposition::AConcept(y);
-					leaf.push_back(prop_tree);
+					leaf.push(prop_tree);
 					leaf.extend(unmatched.into_iter());
-					let id = self.push_node(id, TruthTreeNodeData::Leaf(leaf));
-					break self.prove_recurse(id);
+					break self.prove_recurse(Some(this_id), leaf);
 				}
 			}
 		};
-		unsafe {
-			INDENT.pop();
-			println!("{}{}", INDENT, result);
+		if cfg!(debug_assertions) {
+			unsafe {
+				INDENT.pop();
+				println!("{}{}", INDENT, result);
+			}
 		}
 		result
 	}
 
-	pub fn prove(&mut self) -> bool {
+	pub fn prove(&mut self, leaf: Vec<PropTree>) -> bool {
 		unsafe {
 			INDENT = String::new();
 		}
-		self.prove_recurse(0)
+		self.prove_recurse(None, leaf)
 	}
 }
 
 struct TruthTreeNode {
-	data: TruthTreeNodeData,
+	data: PropTree,
 	parent: Option<usize>,
-}
-
-enum TruthTreeNodeData {
-	Leaf(VecDeque<PropTree>),
-	Stable(PropTree),
 }

@@ -4,13 +4,12 @@ use mytableau::prop_tree::PropTree;
 use mytableau::truth_tree::TruthTree;
 
 fn disp(string: &str) {
-	let mut truth_tree = TruthTree::new();
+	let mut truth_tree = Default::default();
 	let prop_list = string
 		.split('\n')
 		.map(|string| PropTree::from_string(string.trim(), &mut truth_tree, TruthTree::alloc_aid))
 		.collect();
-	truth_tree.load(prop_list);
-	println!("{}", truth_tree.prove());
+	println!("Final: {}", truth_tree.prove(prop_list));
 	println!();
 }
 // |(b |(&(b !(a)) a))
@@ -28,7 +27,7 @@ fn main() {
 		// std::include_str!("data/dl3").trim(),
 		std::include_str!("data/k_branch/tmp").trim(),
 	] {
-		println!("{}", input_str);
+		println!("{}", input_str.len());
 		disp(input_str);
 	}
 }

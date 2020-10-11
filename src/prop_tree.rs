@@ -89,7 +89,9 @@ impl PropTree {
 	}
 
 	pub fn from_string<F>(string: &str, mut truth_tree: &mut TruthTree, alloc_aid: F) -> PropTree
-	where F: Fn(&mut TruthTree, Option<String>) -> usize {
+	where
+		F: Fn(&mut TruthTree, Option<String>) -> usize,
+	{
 		use plex::lexer;
 		let mut result: PropTree = PropTree {
 			root: Proposition::TConcept, // Temporary value
@@ -141,7 +143,10 @@ impl PropTree {
 						match tou {
 							TokenOrUnit::LeftParenthesis => break,
 							TokenOrUnit::Ident(string) => {
-								id_list.push(result.push_node(Concept::Atom(alloc_aid(&mut truth_tree, Some(string)))));
+								id_list.push(result.push_node(Concept::Atom(alloc_aid(
+									&mut truth_tree,
+									Some(string),
+								))));
 							}
 							TokenOrUnit::Unit(id) => id_list.push(id),
 							_ => panic!("Find operator during RPar collapsing"),
@@ -175,17 +180,25 @@ impl PropTree {
 							match id_list.len() {
 								1 => {
 									result.root = Proposition::AConcept(result.pop_ident());
-									result.push_node(Concept::Atom(alloc_aid(&mut truth_tree, Some(string))));
+									result.push_node(Concept::Atom(alloc_aid(
+										&mut truth_tree,
+										Some(string),
+									)));
 								}
 								2 => {
 									let arg1 = result.pop_ident();
 									let arg2 = result.pop_ident();
 									// assume there is a not, without further check
-									result.root = Proposition::ARole(match result.nodes.len() {
-										0 => true,
-										1 => false,
-										_ => panic!("ABox role detect in middle of sentence"),
-									}, alloc_aid(&mut truth_tree, Some(string)), arg1, arg2);
+									result.root = Proposition::ARole(
+										match result.nodes.len() {
+											0 => true,
+											1 => false,
+											_ => panic!("ABox role detect in middle of sentence"),
+										},
+										alloc_aid(&mut truth_tree, Some(string)),
+										arg1,
+										arg2,
+									);
 								}
 								_ => {
 									panic!("ABox not a concept or role!");
@@ -253,14 +266,14 @@ impl PropTree {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
 				new_tree.push_node(Concept::Not(a1))
 			}
-			Concept::Atom(string) => new_tree.push_node(Concept::Atom(string.clone())),
-			Concept::ForAll(string, a) => {
+			Concept::Atom(aid) => new_tree.push_node(Concept::Atom(*aid)),
+			Concept::ForAll(aid, a) => {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
-				new_tree.push_node(Concept::ForAll(string.clone(), a1))
+				new_tree.push_node(Concept::ForAll(*aid, a1))
 			}
-			Concept::Exist(string, a) => {
+			Concept::Exist(aid, a) => {
 				let a1 = self.clone_subtree_recurse(new_tree, *a);
-				new_tree.push_node(Concept::Exist(string.clone(), a1))
+				new_tree.push_node(Concept::Exist(*aid, a1))
 			}
 		}
 	}
@@ -370,10 +383,7 @@ mod test {
 	fn test_from_string_to_string() {
 		assert_eq!(PropTree::from_string("!(&(a b))").to_string(), "!&(a b)");
 		// ABox role
-		assert_eq!(
-			PropTree::from_string("a(b c)").to_string(),
-			"a(b c)"
-		);
+		assert_eq!(PropTree::from_string("a(b c)").to_string(), "a(b c)");
 	}
 
 	#[test]
