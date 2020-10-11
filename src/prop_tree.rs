@@ -32,9 +32,9 @@ impl PropTree {
 	}
 
 	pub fn atom_check(&self, prop_b: &PropTree) -> bool {
-		if let Proposition::AConcept(string) = &self.root {
-			if let Proposition::AConcept(string2) = &prop_b.root {
-				if string != string2 {
+		if let Proposition::AConcept(aid) = &self.root {
+			if let Proposition::AConcept(aid2) = &prop_b.root {
+				if aid != aid2 {
 					return false;
 				}
 			}
@@ -50,22 +50,12 @@ impl PropTree {
 			return false;
 		}
 
-		match self.nodes.last() {
-			Some(node) => &node.data,
-			// only Role has attribute of nodes.is_empty()
-			None => return prop_b.nodes.is_empty(),
-		};
-		let (neg, aid) = if let Some(tuple) = self.concept_atom_check() {
-			tuple
-		} else {
-			return false;
-		};
-		let (neg2, aid2) = if let Some(tuple) = prop_b.concept_atom_check() {
-			tuple
-		} else {
-			return false;
-		};
-		neg ^ neg2 && aid == aid2
+		if let Some(tuple) = self.concept_atom_check() {
+			if let Some(tuple2) = prop_b.concept_atom_check() {
+				return tuple.0 ^ tuple2.0 && tuple.1 == tuple2.1;
+			}
+		}
+		false
 	}
 
 	pub fn push_node(&mut self, concept: Concept) -> usize {
